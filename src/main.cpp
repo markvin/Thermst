@@ -1,40 +1,40 @@
-// this example is public domain. enjoy!
-// https://learn.adafruit.com/thermocouple/
 
+#include <EEPROM.h>
 #include <LiquidCrystal.h>
-#include <arduino-timer.h>
 #include <max6675.h>
 
 #include "defines.h"
+#include "toggle_button.h"
 
 using namespace thermst;
 
-enum Mode { AUTO, MANUAL };
+enum Mode { MODE_AUTO = 0, MODE_MANUAL, all_modes_num };
 
 uint16_t current_temperature;
 uint16_t target_temperature;
 uint16_t current_power_percents{0};
 bool heater_on{false};
-Mode mode{AUTO};
+int mode_code{MODE_AUTO};
 
-namespace display {
+MAX6675 thermocouple(pin::TC_SCK, pin::TC_CS, pin::TC_SO);
 LiquidCrystal lcd(pin::LCD_RS, pin::LCD_EN, pin::LCD_DB4, pin::LCD_DB5,
                   pin::LCD_DB6, pin::LCD_DB7);
+ToggleButton<pin::MODE_BUTTON> mode_button;
 
-void setup() {
+void setupDisplay() {
   lcd.begin(LCD_COLS, LCD_ROWS);
   pinMode(pin::LCD_LED, OUTPUT);
   digitalWrite(pin::LCD_LED, HIGH);
 }
 
-void update() {
+void updateDisplay() {
   char line_buffer[LCD_COLS];
   lcd.setCursor(0, 0);
   lcd.print("t["
             "\x99"
             "C]: ");
 
-  if (mode == AUTO)
+  if (mode_code == MODE_AUTO)
     sprintf(line_buffer, "%3.d %1s %3.d", target_temperature,
             heater_on ? "\x13" : "", current_temperature);
   else
@@ -44,29 +44,20 @@ void update() {
   lcd.print(line_buffer);
 
   sprintf(line_buffer, "P[ %%]: %3.d%s", current_power_percents,
-          mode == AUTO ? "  AUTO" : "      ");
+          mode_code == MODE_AUTO ? "  AUTO" : "      ");
   lcd.setCursor(0, 1);
   lcd.print(line_buffer);
 }
-} // namespace display
 
-MAX6675 thermocouple(pin::TC_SCK, pin::TC_CS, pin::TC_SO);
+void store() {
+  int idx{0};
+  EEPROM.write(idx++, mode_code);
+}
 
-struct ToggleButton {
-  bool update() {
-    int current_state = digitalRead(pin::MODE_BUTTON);
-    if (last_state == HIGH and current_state == LOW) {
-      on = !on;
-    }
-    last_state = current_state;
-    return on;
-  }
-
-private:
-  int last_state;
-  bool on;
-
-} mode_button;
+void restore() {
+  int idx{0};
+  mode_code = EEPROM.read(idx++);
+}
 
 void updateEntities() {
   current_temperature = thermocouple.readCelsius();
@@ -80,9 +71,9 @@ void updateEntities() {
       float(analogRead(pin::POWER_PERCENTS_POTENTIOMETER)) / MAX_ADC_VALUE *
       100;
 
-  mode = mode_button.update() ? AUTO : MANUAL;
+  mode_button.update(mode_code, all_modes_num);
 
-  if (mode == AUTO) {
+  if (mode_code == MODE_AUTO) {
     if (heater_on and
         current_temperature > (target_temperature + TEMPERATURE_HYSTERESIS))
       heater_on = false;
@@ -104,13 +95,20 @@ void setup() {
   pinMode(LED_BUILTIN, OUTPUT);
   pinMode(pin::RELAY, OUTPUT);
   pinMode(pin::POWER_CTRL, OUTPUT);
-  pinMode(pin::MODE_BUTTON, INPUT_PULLUP);
 
-  display::setup();
+  restore();
+
+  setupDisplay();
+
+  delay(500); // wait for the thermocouple to stabilize
 }
 
 void loop() {
+  const auto prev_mode_code = mode_code;
   updateEntities();
+  if (prev_mode_code != mode_code) {
+    store();
+  }
   applyRegulation();
-  display::update();
+  updateDisplay();
 }
