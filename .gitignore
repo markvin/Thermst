@@ -1,2 +1,8 @@
 .pio
 .vscode
+
+*-backups/
+*.kicad_*.lck
+
+hardware/out/
+

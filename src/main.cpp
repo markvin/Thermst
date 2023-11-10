@@ -68,7 +68,8 @@ void updateEntities() {
                             MAX_ADC_VALUE * temperature_range_width;
 
   current_power_percents =
-      float(analogRead(pin::POWER_PERCENTS_POTENTIOMETER)) / MAX_ADC_VALUE *
+      min(analogRead(pin::POWER_PERCENTS_POTENTIOMETER) * 1.f / MAX_ADC_VALUE,
+          1.f) *
       100;
 
   mode_button.update(mode_code, all_modes_num);
@@ -87,8 +88,9 @@ void updateEntities() {
 void applyRegulation() {
   digitalWrite(pin::RELAY, not heater_on);
   digitalWrite(LED_BUILTIN, heater_on);
-  analogWrite(pin::POWER_CTRL,
-              MAX_PWM_VALUE * current_power_percents * heater_on / 100.f);
+
+  const int pwm_factor = MAX_PWM_VALUE * (1.f - current_power_percents * heater_on / 100.f);
+  analogWrite(pin::POWER_CTRL, pwm_factor);
 }
 
 void setup() {
@@ -111,4 +113,5 @@ void loop() {
   }
   applyRegulation();
   updateDisplay();
+  delay(500);
 }
