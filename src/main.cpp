@@ -13,6 +13,7 @@ enum Mode { MODE_AUTO = 0, MODE_MANUAL, all_modes_num };
 uint16_t current_temperature;
 uint16_t target_temperature;
 uint16_t current_power_percents{0};
+bool is_current_power_percents_changed{false};
 bool heater_on{false};
 int mode_code{MODE_AUTO};
 
@@ -43,8 +44,12 @@ void updateDisplay() {
   lcd.setCursor(7, 0);
   lcd.print(line_buffer);
 
-  sprintf(line_buffer, "P[ %%]: %3.d%s", current_power_percents,
-          mode_code == MODE_AUTO ? "  AUTO" : "      ");
+  const bool is_mode_auto = mode_code == MODE_AUTO;
+  const bool show_curent_power_flag =
+      not is_mode_auto or (is_current_power_percents_changed or heater_on);
+  sprintf(line_buffer, "P[ %%]: %3.d%s",
+          show_curent_power_flag ? current_power_percents : 0,
+          is_mode_auto ? "  AUTO" : "      ");
   lcd.setCursor(0, 1);
   lcd.print(line_buffer);
 }
@@ -67,10 +72,12 @@ void updateEntities() {
       MIN_TEMPERATURE + float(analogRead(pin::THERM_PRESET_POTENTIOMETER)) /
                             MAX_ADC_VALUE * temperature_range_width;
 
-  current_power_percents =
+  const uint16_t power_percents =
       min(analogRead(pin::POWER_PERCENTS_POTENTIOMETER) * 1.f / MAX_ADC_VALUE,
           1.f) *
       100;
+  is_current_power_percents_changed = (current_power_percents - power_percents) != 0;
+  current_power_percents = power_percents;
 
   mode_button.update(mode_code, all_modes_num);
 
@@ -89,7 +96,8 @@ void applyRegulation() {
   digitalWrite(pin::RELAY, not heater_on);
   digitalWrite(LED_BUILTIN, heater_on);
 
-  const int pwm_factor = MAX_PWM_VALUE * (1.f - current_power_percents * heater_on / 100.f);
+  const int pwm_factor =
+      MAX_PWM_VALUE * (1.f - current_power_percents * heater_on / 100.f);
   analogWrite(pin::POWER_CTRL, pwm_factor);
 }
 
